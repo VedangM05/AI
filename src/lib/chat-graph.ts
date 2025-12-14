@@ -23,14 +23,11 @@ Guidelines:
 
 Always aim to be helpful, harmless, and honest in all interactions.`;
 
-// Global cache to store compiled graphs to avoid recompilation on every request
 const graphCache = new Map<string, CompiledStateGraph<ChatState, any, any>>();
 
 export function createChatGraph(apiKey: string, model: string = "llama-3.1-8b-instant") {
-  // Create a unique cache key based on the configuration
   const cacheKey = `${apiKey}-${model}`;
 
-  // Check if we already have a compiled graph for this config
   if (graphCache.has(cacheKey)) {
     return graphCache.get(cacheKey)!;
   }
@@ -52,7 +49,6 @@ export function createChatGraph(apiKey: string, model: string = "llama-3.1-8b-in
       `${SYSTEM_PROMPT}\n\nCurrent date and time: ${currentDateTime} (Eastern Time).`
     );
     
-    // The state.messages will already contain the filtered history passed from the route
     const allMessages = [
       systemMessage,
       ...state.messages,
@@ -77,9 +73,6 @@ export function createChatGraph(apiKey: string, model: string = "llama-3.1-8b-in
     .addEdge(START, "agent")
     .addEdge("agent", END);
 
-  // Compile the graph once. 
-  // We do NOT use a checkpointer here because we are explicitly passing the context window 
-  // from the API route, making this graph instance stateless and reusable.
   const compiledGraph = workflow.compile();
   
   // Store in cache
