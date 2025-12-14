@@ -1,12 +1,10 @@
-import { StateGraph, END, START, MemorySaver } from "@langchain/langgraph";
+import { StateGraph, END, START, CompiledStateGraph } from "@langchain/langgraph";
 import { ChatGroq } from "@langchain/groq";
 import { HumanMessage, AIMessage, BaseMessage, SystemMessage } from "@langchain/core/messages";
 
 interface ChatState {
   messages: BaseMessage[];
 }
-
-export const checkpointer = new MemorySaver();
 
 const SYSTEM_PROMPT = `You are an advanced AI assistant designed to provide helpful, accurate, and professional responses. Your capabilities include:
 
@@ -25,7 +23,18 @@ Guidelines:
 
 Always aim to be helpful, harmless, and honest in all interactions.`;
 
+// Global cache to store compiled graphs to avoid recompilation on every request
+const graphCache = new Map<string, CompiledStateGraph<ChatState, any, any>>();
+
 export function createChatGraph(apiKey: string, model: string = "llama-3.1-8b-instant") {
+  // Create a unique cache key based on the configuration
+  const cacheKey = `${apiKey}-${model}`;
+
+  // Check if we already have a compiled graph for this config
+  if (graphCache.has(cacheKey)) {
+    return graphCache.get(cacheKey)!;
+  }
+
   const llm = new ChatGroq({
     apiKey,
     model,
@@ -43,6 +52,7 @@ export function createChatGraph(apiKey: string, model: string = "llama-3.1-8b-in
       `${SYSTEM_PROMPT}\n\nCurrent date and time: ${currentDateTime} (Eastern Time).`
     );
     
+    // The state.messages will already contain the filtered history passed from the route
     const allMessages = [
       systemMessage,
       ...state.messages,
@@ -67,6 +77,13 @@ export function createChatGraph(apiKey: string, model: string = "llama-3.1-8b-in
     .addEdge(START, "agent")
     .addEdge("agent", END);
 
-  return workflow.compile({ checkpointer });
-}
+  // Compile the graph once. 
+  // We do NOT use a checkpointer here because we are explicitly passing the context window 
+  // from the API route, making this graph instance stateless and reusable.
+  const compiledGraph = workflow.compile();
+  
+  // Store in cache
+  graphCache.set(cacheKey, compiledGraph);
 
+  return compiledGraph;
+}
