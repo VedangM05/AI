@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { ChatGroq } from "@langchain/groq";
+import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
+import { createChatGraph } from "@/lib/chat-graph";
 
 export const dynamic = "force-dynamic";
 
@@ -8,9 +9,10 @@ const DEFAULT_MODEL = "llama-3.1-8b-instant";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { messages, model } = body as {
+    const { messages, model, threadId } = body as {
       messages: { role: "user" | "assistant" | "system"; content: string }[];
       model?: string;
+      threadId?: string;
     };
 
     if (!process.env.GROQ_API_KEY) {
@@ -27,35 +29,68 @@ export async function POST(req: Request) {
       );
     }
 
-    const chat = new ChatGroq({
-      apiKey: process.env.GROQ_API_KEY,
-      model: model || DEFAULT_MODEL,
-      temperature: 0.2,
+    const currentThreadId = threadId || `thread-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const lastUserMessage = messages
+      .filter((m) => m.role === "user")
+      .slice(-1)[0];
+
+    if (!lastUserMessage) {
+      return NextResponse.json(
+        { error: "No user message found in messages array." },
+        { status: 400 }
+      );
+    }
+
+    const graph = createChatGraph(
+      process.env.GROQ_API_KEY,
+      model || DEFAULT_MODEL
+    );
+
+    const userMessage = new HumanMessage(lastUserMessage.content);
+    
+    const config = {
+      configurable: {
+        thread_id: currentThreadId,
+      },
+    };
+
+    const result = await graph.invoke(
+      { messages: [userMessage] },
+      config
+    );
+
+    const state = result as { messages: BaseMessage[] };
+    const aiMessages = state.messages.filter((m: BaseMessage) => m instanceof AIMessage);
+    const reply = (aiMessages[aiMessages.length - 1]?.content as string) || "";
+
+    return NextResponse.json({ 
+      reply,
+      threadId: currentThreadId,
     });
-
-    const baseSystemPrompt =
-      messages.find((m) => m.role === "system")?.content ||
-      "You are Nova, a concise, friendly, and slightly witty AI product co-pilot. Your style: practical, to-the-point, prefers short bullet lists, and adds a single fitting emoji occasionally. Always be helpful, avoid fluff, and ask a brief clarifying question when needed.";
-
-    const istNow = new Date().toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
-      dateStyle: "long",
-      timeStyle: "long",
-    });
-    const systemPrompt = `${baseSystemPrompt}\nCurrent date and time: ${istNow} (IST, UTC+05:30).`;
-
-    const history = messages
-      .filter((m) => m.role !== "system")
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n");
-
-    const prompt = `${systemPrompt}\n\n${history}\nAssistant:`;
-
-    const res = await chat.invoke(prompt);
-
-    return NextResponse.json({ reply: res.content });
   } catch (err: any) {
     console.error("/api/chat error", err);
+    
+    if (err?.message?.includes("API key") || err?.message?.includes("401") || err?.message?.includes("Unauthorized")) {
+      return NextResponse.json(
+        { 
+          error: "API key error. Please check your GROQ_API_KEY environment variable.",
+          details: err?.message 
+        },
+        { status: 401 }
+      );
+    }
+    
+    if (err?.message?.includes("ECONNREFUSED") || err?.message?.includes("fetch failed")) {
+      return NextResponse.json(
+        { 
+          error: "Connection error. Please check your API configuration and network connection.",
+          details: err?.message 
+        },
+        { status: 503 }
+      );
+    }
+    
     return NextResponse.json(
       { error: err?.message || "Unknown error" },
       { status: 500 }
