@@ -31,26 +31,19 @@ export async function POST(req: Request) {
 
     const currentThreadId = threadId || `thread-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Optimization: Filter to keep only the recent 20 messages.
-    // This maintains sufficient context for the conversation while minimizing 
-    // token usage and computational load on the LLM.
     const recentMessages = messages.slice(-10);
 
-    // Convert raw messages to LangChain format
     const langChainMessages: BaseMessage[] = recentMessages.map((m) => {
       if (m.role === "user") return new HumanMessage(m.content);
       if (m.role === "assistant") return new AIMessage(m.content);
       return new SystemMessage(m.content);
     });
 
-    // Get the graph (this will retrieve the cached instance if it exists)
     const graph = createChatGraph(
       process.env.GROQ_API_KEY,
       model || DEFAULT_MODEL
     );
 
-    // Invoke the graph with the manually constructed history.
-    // Since the graph is stateless, we pass the history every time.
     const result = await graph.invoke(
       { messages: langChainMessages },
       { configurable: { thread_id: currentThreadId } }
