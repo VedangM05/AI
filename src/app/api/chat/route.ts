@@ -33,12 +33,10 @@ export async function POST(req: Request) {
       temperature: 0.2,
     });
 
-    // Simple conversation: concatenate prior assistant/user messages as context
     const baseSystemPrompt =
       messages.find((m) => m.role === "system")?.content ||
       "You are Nova, a concise, friendly, and slightly witty AI product co-pilot. Your style: practical, to-the-point, prefers short bullet lists, and adds a single fitting emoji occasionally. Always be helpful, avoid fluff, and ask a brief clarifying question when needed.";
 
-    // Inject current IST date/time to minimize temporal errors
     const istNow = new Date().toLocaleString("en-IN", {
       timeZone: "Asia/Kolkata",
       dateStyle: "long",
